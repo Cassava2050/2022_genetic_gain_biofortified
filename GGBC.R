@@ -44,7 +44,7 @@ names(sel_data_kp) = gsub("-", "_", names(sel_data_kp))
 duplicated_plot <- row_col_dup(sel_data_kp) # non applicable to non row-col designs
 
 ## Plot trial layout
-trial_layout(sel_data_kp) 
+#trial_layout(sel_data_kp) 
 
 sel_data_kp <- sel_data_kp %>% 
   mutate(use_accession_name = recode_factor(use_accession_name, COSTENA = "Costena")) 
@@ -129,8 +129,9 @@ trial_tidy = trial_tidy[c(meta_info, trait_list)]
 # Select the interest traits
 trial_tidy <- trial_tidy %>% select(all_of(meta_info), DM_gravity, yield_ha)
 
-# Now I need to remove the trials with no yield data
-trait = "yield_ha"
+# Now I need to remove the trials without either yield or DM_gravity data.
+trait = "DM_gravity" # "DM_gravity" "yield_ha"
+
 
 exp <- trial_tidy %>% 
   as_tibble() %>% 
@@ -145,8 +146,7 @@ exp <- trial_tidy %>%
 
 # remove trials with 100% of missing data
 
-trial_tidy <- trial_tidy %>% 
-  filter(trial_name %in% exp)
+trial_tidy <- trial_tidy %>% filter(trial_name %in% exp)
 
 # Boxplots
 my_dat_noNA <- trial_tidy[, colSums(is.na(trial_tidy)) < nrow(trial_tidy)]
@@ -209,14 +209,16 @@ trial_tidy_new %>%
   geom_boxplot(width = 0.4) +
   coord_cartesian(ylim = c(y_MIN, y_MAX)) +
   theme_xiaofei() 
-ggsave("images/yield.png", units = "in", dpi = 300, width = 20, height = 7)
+ggsave(paste("images\\", trait, Sys.Date(), ".png", sep = "_"),
+      units = "in", dpi = 300, width = 20, height = 7)
+
 
 # Number of shared information
 shared <- check_connectivity(
   data = trial_tidy_new,
   genotype = "accession_name",
   trial = "trial_name",
-  response = NULL,
+  response = trait,
   return_matrix = TRUE
 ) 
 
@@ -225,7 +227,8 @@ shared_cor(shared, size = 2) +
   theme_xiaofei() +
   labs(x = NULL, y = NULL) +
   theme(legend.position = "none", panel.background = ggplot2::element_blank()) 
-ggsave("images/shared_info.png", units = "in", dpi = 300, width = 15, height = 8)
+ggsave(paste0("images/shared_info_", trait, ".png", sep = ""),
+       units = "in", dpi = 300, width = 15, height = 10)
 
 
 exp <- unique(c(exp, exp_old_ata)) 
