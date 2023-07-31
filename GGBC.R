@@ -194,7 +194,8 @@ exp_old_ata <- genetic_gains %>%
 genetic_gains <- genetic_gains %>% filter(trial_name %in% exp_old_ata)
 
 # bind both data frame
-trial_tidy_new <- trial_tidy %>% bind_rows(genetic_gains) %>% as_tibble() 
+trial_tidy_new <- trial_tidy %>% 
+  bind_rows(genetic_gains) # %>% as_tibble() 
 str(trial_tidy_new)
 
 # becoming factor some meta data cols
@@ -236,17 +237,20 @@ exp <- unique(c(exp, exp_old_ata))
 datos <- trial_tidy_new 
 
 # Equation yield_ha ~ rep_number + (1 | accession_name)
-equation <- reformulate(c("rep_number", ran("accession_name") ), response = "yield_ha")
+equation <- reformulate(c("rep_number", ran("accession_name") ), response = trait)
 
 # running mixed model
-objt <- mult_lme4(data = genetic_gains, equation = equation, var_sub = "trial_name")
+objt <- mult_lme4(data = datos, equation = equation, var_sub = "trial_name")
+
+# trials_converged
+trial_converged <- names(objt)
 
 # After this step, 12 trial models did not converge and were removed from the analysis
 setdiff(exp, trial_converged) %>% as.data.frame() %>% 
   write.table("clipboard", col.names = T, row.names = F, sep = "\t")
 
 # extracting Vg, Ve, H2 & outliers
-mt_summ <- mult_summary(objt , gen = "accession_name", y = "yield_ha")
+mt_summ <- mult_summary(objt , gen = "accession_name", y = "DM_gravity")
 summ_height0 <- mt_summ
 
 # extracting outliers
@@ -256,7 +260,8 @@ dataOut <- data.frame(plyr::ldply(dataOut[], data.frame, .id = "Experiment"))
 # trials with outliers
 dataOut %>% filter(Classify == "Outlier") %>% pull(Experiment) -> trial_outliers
 dataOut %>% filter(Classify == "Outlier") %>% 
-  mutate(across(where(is.numeric), round, 2))
+  mutate(across(where(is.numeric), round, 2)) %>% 
+  write.table("clipboard", col.names = T, row.names = F, sep = "\t")
 
 # trials with the most extreme outliers
 trial_tidy_new %>% filter(trial_name %in% trial_outliers) %>% 
@@ -265,47 +270,75 @@ trial_tidy_new %>% filter(trial_name %in% trial_outliers) %>%
   geom_boxplot(width = 0.4) +
   labs(x = NULL) +
   theme_xiaofei() 
-ggsave("images/outliers_trial.png", units = "in", dpi = 300, width = 12, height = 6)
+ggsave(paste0("images/outliers", trait, ".png"), 
+       units = "in", dpi = 300, width = 12, height = 6)
 
 # putting outliers as NA
-dataOut[dataOut$Classify=="Outlier", "yield_ha"  ] <- NA
+dataOut[dataOut$Classify=="Outlier", trait] <- NA
 
 # run again without outliers
 
 objt <- mult_lme4(data = dataOut, equation = equation, var_sub = "Experiment")
-mt_summ2 <- mult_summary(models = objt ,gen = "accession_name", y = "yield_ha")
+mt_summ2 <- mult_summary(models = objt, gen = "accession_name", y = trait)
 summ_height <- mt_summ2
 print(mt_summ2)
 
-# ploting mt_summ2
-mt_summ2 %>% select() %>% pivot_longer()
 
-# there is a trial with H2 = 0 2019103BCPRC_cbia
-trial_tidy_new %>% filter(trial_name == "2019103BCPRC_cbia") %>%
-  select(plot_name, rep_number, accession_name, yield_ha) %>%
-  ggplot(aes(x = reorder(accession_name, yield_ha), y = yield_ha)) +
+# there is a trial with H2 = 0 
+exp_h2_0 <- mt_summ2 %>% filter(!h2 >=  0.1 ) %>% pull(Experiment)
+trial_tidy_new$trial_name <- as.factor(trial_tidy_new$trial_name)
+
+# make a for loop here: 
+for (i in 1:length(exp_h2_0)) {
+  
+  plot_box <- trial_tidy_new %>% filter(trial_name == exp_h2_0[i]) %>%
+  select(plot_name, rep_number, accession_name, sym(!!trait)) %>%
+  ggplot(aes(x = accession_name, y = DM_gravity)) + # remenmber
   geom_boxplot() +
   geom_point(aes(color = rep_number)) +
-  labs(x = NULL, title = "2019103BCPRC_cbia") +
-  theme_xiaofei()
-ggsave("images/heri_0.png", units = "in", dpi = 300, width = 12, height = 7)
+  labs(x = NULL, title = exp_h2_0[i]) +
+  theme_xiaofei() 
+  
+  # print the plots
+  print(plot_box)
+  
+  # save the plots with lowest H2
+  ggsave(paste("images/heri_0", exp_h2_0[i], trait, Sys.Date(), ".png", sep = "_"),
+         plot = plot_box, units = "in", dpi = 300, width = 12, height = 7)
+}
 
 # trials kept
 exp_valids <- mt_summ2 %>% filter(h2 >=  0.1 ) %>% pull(Experiment)
+
+# I need to standradize location across years for DM_gravity trials.
+
+if (trait == "DM_gravity") {
+  trial_tidy_new <- trial_tidy_new %>% mutate(location = recode_factor(location, 
+                                                     Caribia = "Caribia. Magdalena, Colombia",
+                                                     Cerete = "Cerete. Cordoba, Colombia", 
+                                                     `El Carmen de Bolivar` = "El Carmen. Bolivar, Colombia",
+                                                     `La Union` = "La Union. Sucre, Colombia")) 
+  }
 
 # phenotypic yield data across trials kept
 trial_tidy_new %>% filter(trial_name %in% exp_valids) %>% 
   droplevels() %>% 
   ggplot(aes(x = trial_name, y = !!sym(trait), fill = year)) + 
-  geom_boxplot(width = 0.4) +
+  geom_boxplot(width = 0.5) +
   labs(x = NULL) +
   theme_xiaofei()
-ggsave("images/kept_trials_yield.png", units = "in", dpi = 300, width = 12, height = 7)
-  
+ggsave(paste("images/kept_trials", trait, Sys.Date(), ".png", sep = "_"),
+       units = "in", dpi = 300, width = 14, height = 7)
+
+#  kept trials  
 # Save the tidy data ------------------------------------------------------
-
-
 cleanDT <- dataOut %>% filter(Experiment %in% exp_valids) %>% select(-res, -Classify)
+
+# number of location
+location_short <- cleanDT$Experiment
+location_short <- location_short %>% as.character() %>% unique()
+unique(substr(location_short, nchar(location_short) - 3, nchar(location_short))) %>% 
+  length() # 19 for DM_gravity
 
 variables <- trial_tidy_new %>% select(year , trial_name, plot_name, location, accession_name, rep_number )
 variables$rep_number <- as.numeric(variables$rep_number)
@@ -315,6 +348,19 @@ cleanDT <-
         variables, 
         by.x = c("Experiment", "rep_number", "accession_name"),
         by.y = c("trial_name", "rep_number", "accession_name"), all.x = TRUE)
+
+# standardize check clone names
+cleanDT <- cleanDT %>% mutate(accession_name = recode_factor(accession_name, 
+                                                  `CG1141-1_is_Costena` = "CG1141-1",
+                                                  `CM4919-1_is_Veronica` = "CM4919-1",
+                                                  `COL2215_is_Venezolana` = "COL2215",
+                                                  `SMB2446-2_is_Caiseli` = "SMB2446-2",
+                                                  `TAI8_is_TAI` = "TAI8",
+                                                  `SM2775-4_is_Bellotti` = "SM2775-4",
+                                                  COSTENA = "CG1141-1",
+                                                  Venezolana = "COL2215"       
+                                                  ))
+
 
 # Save the tidy data
 folder_output <- here::here("output//")
@@ -344,6 +390,7 @@ if(trial_set_number == 1){
   trial_tidy_all = trial1_tidy
 }
 
+rm(cleanDT)
 cleanDT <- trial_tidy_all
 str(cleanDT)
 
@@ -356,9 +403,9 @@ cleanDT$accession_name = as.factor(cleanDT$accession_name)
 
 
 # Genetic gain calculation Yield
-
 equation_fixed <-  reformulate(c("1", "accession_name", "year"), response = trait)
 
+# Load library
 library(asreml)
 
 # model 1
@@ -411,7 +458,7 @@ aic_5 <- summary(model_5)$aic
 bic_5 <- summary(model_5)$bic
 
 # Model parameters quality
-tibble(
+QP <- tibble(
   Model = c("Model 1", "Model 2", "Model 3", "Model 4", "Model 5"),
   AIC = c(
     aic_1[1],
@@ -429,10 +476,10 @@ tibble(
   )
 ) %>% arrange(AIC)
 
+QP
+
 # function for computing the variance-covariance
 source("extractG.R")
-
-
 extractG(model_5, gen = "accession_name", env = "Experiment", vc.model = "diag")$VCOV %>%
   diag() %>%
   data.frame(Exp = names(.), VarG = ., row.names = NULL) %>%
@@ -440,17 +487,35 @@ extractG(model_5, gen = "accession_name", env = "Experiment", vc.model = "diag")
   geom_bar(stat = "identity")+
   theme(axis.text.x = element_text(hjust = 1 , angle = 75))
 
+model_number = "model_4"
+
 # Merging Predicted value with the yearOrigin
-
-model = ""
-
-pvals1 <- predict(model_5, classify = "accession_name")$pvals
+pvals1 <- predict(model_4, classify = "accession_name")$pvals
 origin <- read_csv("data/crossing_year.csv") 
 origin <- origin[!origin %>% duplicated(), ]
+
+# I need to check if are there any landrances in cross year data
+landrace <- origin$accession_name[!str_detect(origin$accession_name, "-")]
+
+# cross year missing values per accession_name
+pvals1 %>% left_join(origin, by = "accession_name") %>% 
+  filter(is.na(cross_year)) %>% 
+  write.table("clipboard", col.names = T, row.names = F, sep = "\t", na = "")
+
+# cross year missing values per family
+pvals1 %>% left_join(origin, by = "accession_name") %>% 
+  filter(is.na(cross_year)) %>% 
+  separate(accession_name, c("family", "offspring_code"), sep = "-") %>% 
+  distinct(family) %>% write.table("clipboard", col.names = T, row.names = F, sep = "\t")
+
+# merging with origin data (no missing data)
 stack <- merge(pvals1, origin, by = "accession_name")
 
+# years _crossing
+stack$cross_year %>% unique()
 
-# load("environment.RData")
+# remove value < 15%
+stack <- stack %>% filter(!predicted.value < 17.5)
 
 library(ggpubr)
 t1 <- stack %>% 
@@ -460,38 +525,29 @@ t1 <- stack %>%
   stat_regline_equation()+
   # geom_abline(intercept = -320.462, slope = 0.1639, color="blue",
   #             size=1) +
-  labs(x = "crossing year", y = "Predicted yield_ha") +
+  labs(x = "crossing year", y = paste("Predicted", trait, sep = "_")) +
   geom_smooth(method = "lm", formula = y ~ x, se = FALSE) +
   theme_xiaofei()
   
 t1
-ggsave("images/GG_model4.png", plot = t1, units = "in", dpi = 300, width = 6, height = 6)
+ggsave(paste("images/", "GG", trait, model_number, sep = "_", ".png"),
+       plot = t1, units = "in", dpi = 300, width = 6, height = 6)
 
-model4 <- lm(formula = predicted.value ~ cross_year, data = stack %>% filter(cross_year > 2006)  )
-model5 <- lm(formula = predicted.value ~ cross_year, data = stack %>% filter(cross_year > 2006)  )
+model<- lm(formula = predicted.value ~ cross_year, data = stack %>% 
+             filter(cross_year >= 2006))
 
 # -------------------------------------------------------------------------
-# model 5
-gg_model_5 <- agriutilities::parameters_gg(model = model5, trait = "yield_ha")
-gg_model_5 %>% mutate(across(where(is.numeric), round, 4)) %>% 
+# lineal model
+gg_model <- agriutilities::parameters_gg(model = model, trait = trait)
+gg_model %>% mutate(across(where(is.numeric), round, 4)) %>% 
   t() %>% as.data.frame() %>% 
   write.table("clipboard", col.names = F, row.names = T, sep = "\t")
 
 # manual way
-intercept = model5$coefficients[1]
-slope = model5$coefficients[2]
+intercept = model$coefficients[1]
+slope = model$coefficients[2]
 lastYear = (2014*slope)  + intercept
 firstYear = (2007*slope)  + intercept
 
 slope/firstYear * 100  
-
-# model 4
-
-gg_model_4 <- agriutilities::parameters_gg(model = model4, trait = "yield_ha")
-gg_model_4 %>% mutate(across(where(is.numeric), round, 4)) %>% 
-  t() %>% as.data.frame() %>% 
-  write.table("clipboard", col.names = F, row.names = T, sep = "\t")
-
-
-
 
