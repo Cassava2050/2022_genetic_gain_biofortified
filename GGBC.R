@@ -20,6 +20,7 @@ sel_data <- read_cassavabase(phenotypeFile = paste0(folder, file))
 
 length(unique(sel_data$studyName)) # 27 trials
 
+sel_data$studyYear %>% unique()
 
 # ---- Change columns into standar names ----
 sel_data_kp <- change_colname(sel_data, NA)
@@ -125,6 +126,83 @@ trait_list = gsub("obs_", "", trait_list)
 trait_list
 names(trial_tidy)= gsub("obs_", "", names(trial_tidy))
 trial_tidy = trial_tidy[c(meta_info, trait_list)]
+
+
+# Loading BC content ------------------------------------------------------
+if(TRUE) { 
+  
+  
+  
+trait = "BC"
+
+local_file <- "yes" #
+
+if (local_file == "yes") {
+  folder <- here::here("data//")  
+  file <- "phenotype_bc_1.csv"
+  skip_col <- 3 # double check the number of col skipped
+  trial_interest = "GGBC"
+  year_interest <- 2023
+}
+
+# 1) load the data
+sel_data <- read_cassavabase(phenotypeFile = paste0(folder, file))
+
+length(unique(sel_data$studyName)) # 27 trials
+
+sel_data$studyYear %>% unique()
+
+# ---- Change columns into standar names ----
+sel_data_kp <- change_colname(sel_data, NA)
+
+
+## change the column class
+
+obs_col <- c(
+  names(sel_data_kp)[str_detect(names(sel_data_kp), "obs_")],
+  "use_rep_number", "blockNumber",
+  "use_plot_number", "use_plot_width",
+  "use_plot_length"
+)
+sel_data_kp %<>%
+  mutate(across(all_of(obs_col), as.numeric))
+
+
+# remove - , replace by _
+names(sel_data_kp) = gsub("-", "_", names(sel_data_kp))
+
+## Duplications in row and cols
+duplicated_plot <- row_col_dup(sel_data_kp) # non applicable to non row-col designs
+
+## Plot trial layout
+#trial_layout(sel_data_kp) 
+
+sel_data_kp <- sel_data_kp %>% 
+  mutate(use_accession_name = recode_factor(use_accession_name, 
+                                            COSTENA = "Costena",
+                                            VENEZOLANA = "Venezolana")) 
+
+## Check the clone name
+cloneName_new_old <- check_clone_name(
+  clone_list = sel_data_kp$use_accession_name,
+  new_names = NA,
+  add_check = NULL
+)
+
+trial_standard <- sel_data_kp %>%
+  left_join(cloneName_new_old,
+            by = c("use_accession_name" = "accession_name_ori")
+  ) %>%
+  select(-use_accession_name) %>%
+  rename(use_accession_name = use_accession_name.y)
+
+trial_standard %>% select(use_trial_name, use_accession_name, obs_betacarotenoid_nirs) %>% 
+  drop_na() %>% dim()
+
+
+
+}
+
 
 # Select the interest traits
 trial_tidy <- trial_tidy %>% select(all_of(meta_info), DM_gravity, yield_ha)
