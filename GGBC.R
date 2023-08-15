@@ -41,12 +41,7 @@ sel_data_kp %<>%
 # remove - , replace by _
 names(sel_data_kp) = gsub("-", "_", names(sel_data_kp))
 
-## Duplications in row and cols
-duplicated_plot <- row_col_dup(sel_data_kp) # non applicable to non row-col designs
-
-## Plot trial layout
-#trial_layout(sel_data_kp) 
-
+# replace COSTENA by Costena
 sel_data_kp <- sel_data_kp %>% 
   mutate(use_accession_name = recode_factor(use_accession_name, COSTENA = "Costena")) 
 
@@ -93,22 +88,6 @@ conducted_trials <-
 conducted_trials %>% View() # there are some trials with non harvest day.
 # double check them when I have kept with the valid trials
 
-# plot plant number
-plants_plot <- trial_standard %>%
-  group_by(use_trial_name) %>%
-  count(obs_planted_number_plot) 
-
-plants_plot
-
-## Frequency harvest plant number
-
-plants_harvested <- trial_standard %>%
-  group_by(use_trial_name) %>%
-  count(obs_harvest_number) %>% arrange(desc(obs_harvest_number))
-
-plants_harvested %>% left_join(plants_plot %>% select(-n), by = "use_trial_name") %>% 
-  left_join(conducted_trials %>% select(use_trial_name, n_gen), by = "use_trial_name") %>% 
-  arrange(desc(n))
 
 # Is numeric all trait data?
 is_numeric(trial_data = trial_standard)
@@ -126,82 +105,6 @@ trait_list = gsub("obs_", "", trait_list)
 trait_list
 names(trial_tidy)= gsub("obs_", "", names(trial_tidy))
 trial_tidy = trial_tidy[c(meta_info, trait_list)]
-
-
-# Loading BC content ------------------------------------------------------
-if(TRUE) { 
-  
-  
-  
-trait = "BC"
-
-local_file <- "yes" #
-
-if (local_file == "yes") {
-  folder <- here::here("data//")  
-  file <- "phenotype_bc_1.csv"
-  skip_col <- 3 # double check the number of col skipped
-  trial_interest = "GGBC"
-  year_interest <- 2023
-}
-
-# 1) load the data
-sel_data <- read_cassavabase(phenotypeFile = paste0(folder, file))
-
-length(unique(sel_data$studyName)) # 27 trials
-
-sel_data$studyYear %>% unique()
-
-# ---- Change columns into standar names ----
-sel_data_kp <- change_colname(sel_data, NA)
-
-
-## change the column class
-
-obs_col <- c(
-  names(sel_data_kp)[str_detect(names(sel_data_kp), "obs_")],
-  "use_rep_number", "blockNumber",
-  "use_plot_number", "use_plot_width",
-  "use_plot_length"
-)
-sel_data_kp %<>%
-  mutate(across(all_of(obs_col), as.numeric))
-
-
-# remove - , replace by _
-names(sel_data_kp) = gsub("-", "_", names(sel_data_kp))
-
-## Duplications in row and cols
-duplicated_plot <- row_col_dup(sel_data_kp) # non applicable to non row-col designs
-
-## Plot trial layout
-#trial_layout(sel_data_kp) 
-
-sel_data_kp <- sel_data_kp %>% 
-  mutate(use_accession_name = recode_factor(use_accession_name, 
-                                            COSTENA = "Costena",
-                                            VENEZOLANA = "Venezolana")) 
-
-## Check the clone name
-cloneName_new_old <- check_clone_name(
-  clone_list = sel_data_kp$use_accession_name,
-  new_names = NA,
-  add_check = NULL
-)
-
-trial_standard <- sel_data_kp %>%
-  left_join(cloneName_new_old,
-            by = c("use_accession_name" = "accession_name_ori")
-  ) %>%
-  select(-use_accession_name) %>%
-  rename(use_accession_name = use_accession_name.y)
-
-trial_standard %>% select(use_trial_name, use_accession_name, obs_betacarotenoid_nirs) %>% 
-  drop_na() %>% dim()
-
-
-
-}
 
 
 # Select the interest traits
@@ -286,10 +189,9 @@ trial_tidy_new %>%
   droplevels() %>% 
   ggplot(aes(x = trial_name, y = !!sym(trait), fill = year)) + 
   geom_boxplot(width = 0.4) +
-  coord_cartesian(ylim = c(y_MIN, y_MAX)) +
   theme_xiaofei() 
-ggsave(paste("images\\", trait, Sys.Date(), ".png", sep = "_"),
-      units = "in", dpi = 300, width = 20, height = 7)
+# ggsave(paste("images\\", trait, Sys.Date(), ".png", sep = "_"),
+#       units = "in", dpi = 300, width = 20, height = 7)
 
 
 # Number of shared information
@@ -306,11 +208,12 @@ shared_cor(shared, size = 2) +
   theme_xiaofei() +
   labs(x = NULL, y = NULL) +
   theme(legend.position = "none", panel.background = ggplot2::element_blank()) 
-ggsave(paste0("images/shared_info_", trait, ".png", sep = ""),
-       units = "in", dpi = 300, width = 15, height = 10)
+# ggsave(paste0("images/shared_info_", trait, ".png", sep = ""),
+#        units = "in", dpi = 300, width = 15, height = 10)
 
 
 exp <- unique(c(exp, exp_old_ata)) 
+
 # Models
 datos <- trial_tidy_new 
 
@@ -326,6 +229,30 @@ trial_converged <- names(objt)
 # After this step, 12 trial models did not converge and were removed from the analysis
 setdiff(exp, trial_converged) %>% as.data.frame() %>% 
   write.table("clipboard", col.names = T, row.names = F, sep = "\t")
+
+# why trial 202063BCEPR_repe did not converged?
+# function to save ggplot to clipboard
+gg_to_clipboard <- function(plot = last_plot(), width = 1000, height = 600, pointsize = 12){
+  win.graph(width = width, height = height, pointsize = pointsize)
+  plot %>% print()
+  savePlot("clipboard") # , type = "wmf"
+  dev.off()
+}
+
+# plotting the ggplot
+myplot_NC <- datos %>% filter(trial_name == "202063BCEPR_repe") %>%
+  select(plot_name, rep_number, accession_name, sym(!!trait)) %>%
+  ggplot(aes(x = accession_name, y = yield_ha)) + # remember
+  geom_boxplot() +
+  geom_point(aes(color = rep_number)) +
+  labs(x = NULL, title = "202063BCEPR_repe") +
+  theme_xiaofei() 
+
+# Executing the function
+gg_to_clipboard(myplot_NC)
+
+
+# -------------------------------------------------------------------------
 
 # extracting Vg, Ve, H2 & outliers
 mt_summ <- mult_summary(objt , gen = "accession_name", y = "DM_gravity")
@@ -347,26 +274,37 @@ trial_tidy_new %>% filter(trial_name %in% trial_outliers) %>%
   ggplot(aes(x = trial_name, y = !!sym(trait), fill = year)) + 
   geom_boxplot(width = 0.4) +
   labs(x = NULL) +
-  theme_xiaofei() 
-ggsave(paste0("images/outliers", trait, ".png"), 
-       units = "in", dpi = 300, width = 12, height = 6)
+  theme_xiaofei()
+# ggsave(paste0("images/outliers", trait, ".png"),
+#        units = "in", dpi = 300, width = 12, height = 6)
 
 # putting outliers as NA
 dataOut[dataOut$Classify=="Outlier", trait] <- NA
 
 # run again without outliers
 
-objt <- mult_lme4(data = dataOut, equation = equation, var_sub = "Experiment")
+if (trait == "yield_ha") { 
+# It was needed remove rep 3 from 2019103BCPRC_cbia trial
+dataOut_1 <- dataOut %>% filter(Experiment == "2019103BCPRC_cbia", !rep_number == 3) %>% 
+  bind_rows(dataOut %>% filter(!Experiment == "2019103BCPRC_cbia"))
+}else{
+  dataOut_1 <- dataOut %>% 
+    filter(Experiment == "201752CQEAR_cere", !rep_number == 1) %>% 
+    bind_rows(dataOut %>% filter(!Experiment == "201752CQEAR_cere"))
+}
+
+objt <- mult_lme4(data = dataOut_1, equation = equation, var_sub = "Experiment")
 mt_summ2 <- mult_summary(models = objt, gen = "accession_name", y = trait)
 summ_height <- mt_summ2
-print(mt_summ2)
+print(mt_summ2 %>% arrange(h2))
 
 
 # there is a trial with H2 = 0 
 exp_h2_0 <- mt_summ2 %>% filter(!h2 >=  0.1 ) %>% pull(Experiment)
 trial_tidy_new$trial_name <- as.factor(trial_tidy_new$trial_name)
 
-# make a for loop here: 
+if(FALSE) { 
+# make a for loop here for trials heritability == 0: 
 for (i in 1:length(exp_h2_0)) {
   
   plot_box <- trial_tidy_new %>% filter(trial_name == exp_h2_0[i]) %>%
@@ -384,8 +322,9 @@ for (i in 1:length(exp_h2_0)) {
   ggsave(paste("images/heri_0", exp_h2_0[i], trait, Sys.Date(), ".png", sep = "_"),
          plot = plot_box, units = "in", dpi = 300, width = 12, height = 7)
 }
+}
 
-# trials kept
+ # trials kept
 exp_valids <- mt_summ2 %>% filter(h2 >=  0.1 ) %>% pull(Experiment)
 
 # I need to standradize location across years for DM_gravity trials.
@@ -395,7 +334,38 @@ if (trait == "DM_gravity") {
                                                      Caribia = "Caribia. Magdalena, Colombia",
                                                      Cerete = "Cerete. Cordoba, Colombia", 
                                                      `El Carmen de Bolivar` = "El Carmen. Bolivar, Colombia",
-                                                     `La Union` = "La Union. Sucre, Colombia")) 
+                                                     `La Union` = "La Union. Sucre, Colombia",
+                                                     Lorica = "Lorica, Cordoba, Colombia",
+                                                     Malambo = "Malambo. Atlantico, Colombia",
+                                                     Momil = "Momil. Cordoba, Colombia",
+                                                     Motilonia = "Motilonia. Cesar, Colombia",
+                                                     `Palmar de Varela` = "Palmar de Varela. Atlantico, Colombia",
+                                                     Pivijay = "Pivijay. Magdalena, Colombia",
+                                                     Polonuevo = "Polonuevo. Atlantico, Colombia",
+                                                     Repelon = "Repelon. Atlantico, Colombia",
+                                                     Sabanagrande = "Sabanagrande. Atlantico, Colombia",
+                                                     Sahagun = "Sahagun. Cordoba, Colombia",
+                                                     Sevilla = "Sevilla. Magdalena, Colombia",
+                                                     Since = "Since. Sucre, Colombia",
+                                                     `Agustin Codazzi` = "Agustin Codazzi. Cesar, Colombia")) 
+}else{
+  trial_tidy_new <- trial_tidy_new %>% mutate(location = recode_factor(location, 
+                                                                       Caribia = "Caribia. Magdalena, Colombia",
+                                                                       Cerete = "Cerete. Cordoba, Colombia", 
+                                                                       `El Carmen de Bolivar` = "El Carmen. Bolivar, Colombia",
+                                                                       `La Union` = "La Union. Sucre, Colombia",
+                                                                       Momil = "Momil. Cordoba, Colombia",
+                                                                       Pivijay = "Pivijay. Magdalena, Colombia",
+                                                                       Repelon = "Repelon. Atlantico, Colombia",
+                                                                       `Palmar de Varela` = "Palmar de Varela. Atlantico, Colombia",
+                                                                       Malambo = "Malambo. Atlantico, Colombia",
+                                                                       Sahagun = "Sahagun. Cordoba, Colombia",
+                                                                       Lorica = "Lorica, Cordoba, Colombia",
+                                                                       Sevilla = "Sevilla. Magdalena, Colombia",
+                                                                       Sabanagrande = "Sabanagrande. Atlantico, Colombia",
+                                                                       `Agustin Codazzi` = "Agustin Codazzi. Cesar, Colombia",
+                                                                       Since = "Since. Sucre, Colombia",
+                                                                       Polonuevo = "Polonuevo. Atlantico, Colombia"))  
   }
 
 # phenotypic yield data across trials kept
@@ -405,8 +375,8 @@ trial_tidy_new %>% filter(trial_name %in% exp_valids) %>%
   geom_boxplot(width = 0.5) +
   labs(x = NULL) +
   theme_xiaofei()
-ggsave(paste("images/kept_trials", trait, Sys.Date(), ".png", sep = "_"),
-       units = "in", dpi = 300, width = 14, height = 7)
+# ggsave(paste("images/kept_trials", trait, Sys.Date(), ".png", sep = "_"),
+#        units = "in", dpi = 300, width = 14, height = 7)
 
 #  kept trials  
 # Save the tidy data ------------------------------------------------------
@@ -418,7 +388,9 @@ location_short <- location_short %>% as.character() %>% unique()
 unique(substr(location_short, nchar(location_short) - 3, nchar(location_short))) %>% 
   length() # 19 for DM_gravity
 
-variables <- trial_tidy_new %>% select(year , trial_name, plot_name, location, accession_name, rep_number )
+variables <- trial_tidy_new %>% select(year , trial_name, plot_name, 
+                                       location, accession_name, rep_number )
+
 variables$rep_number <- as.numeric(variables$rep_number)
 
 cleanDT <- 
@@ -446,6 +418,8 @@ meta_file_name <- paste0(folder_output, paste0("2023_", trial_interest, "_tidy_d
 write.csv(cleanDT, file = meta_file_name, row.names = F, na = "")
 
 
+# -------------------------------------------------------------------------
+
 ## Load the tidy data
 trial_set_number = 1
 
@@ -468,6 +442,7 @@ if(trial_set_number == 1){
   trial_tidy_all = trial1_tidy
 }
 
+# erase cleanDT object from environment
 rm(cleanDT)
 cleanDT <- trial_tidy_all
 str(cleanDT)
@@ -558,7 +533,7 @@ QP
 
 # function for computing the variance-covariance
 source("extractG.R")
-extractG(model_5, gen = "accession_name", env = "Experiment", vc.model = "diag")$VCOV %>%
+extractG(model_5, gen = "accession_name", env = "Experiment", vc.model = "diag")$CORR %>%
   diag() %>%
   data.frame(Exp = names(.), VarG = ., row.names = NULL) %>%
   ggplot(aes(x = Exp, y = VarG))+
@@ -566,10 +541,11 @@ extractG(model_5, gen = "accession_name", env = "Experiment", vc.model = "diag")
   theme(axis.text.x = element_text(hjust = 1 , angle = 75))
 
 model_number = "model_4"
+model_number = "model_5"
 
 # Merging Predicted value with the yearOrigin
 pvals1 <- predict(model_4, classify = "accession_name")$pvals
-origin <- read_csv("data/crossing_year.csv") 
+origin <- read_csv("data/crossing_year_update_2023-08-14.csv") 
 origin <- origin[!origin %>% duplicated(), ]
 
 # I need to check if are there any landrances in cross year data
@@ -577,42 +553,53 @@ landrace <- origin$accession_name[!str_detect(origin$accession_name, "-")]
 
 # cross year missing values per accession_name
 pvals1 %>% left_join(origin, by = "accession_name") %>% 
-  filter(is.na(cross_year)) %>% 
+  filter(is.na(year)) %>% distinct(accession_name) %>% 
   write.table("clipboard", col.names = T, row.names = F, sep = "\t", na = "")
 
 # cross year missing values per family
 pvals1 %>% left_join(origin, by = "accession_name") %>% 
-  filter(is.na(cross_year)) %>% 
+  filter(str_detect(accession_name, "-"), is.na(cross_year)) %>% 
   separate(accession_name, c("family", "offspring_code"), sep = "-") %>% 
-  distinct(family) %>% write.table("clipboard", col.names = T, row.names = F, sep = "\t")
+  distinct(family) %>% write.table("clipboard", col.names = T, row.names = F, sep = "\t")  
 
 # merging with origin data (no missing data)
 stack <- merge(pvals1, origin, by = "accession_name")
 
 # years _crossing
-stack$cross_year %>% unique()
+stack$year %>% unique()
 
-# remove value < 15%
+if(trait == "DM_gravity") { 
+# remove value < 15% DM
 stack <- stack %>% filter(!predicted.value < 17.5)
+}
 
 library(ggpubr)
+library(scales)
 t1 <- stack %>% 
-  filter(cross_year >= 2007) %>% 
-  ggplot(aes(x = cross_year, y = predicted.value )) +
+  filter(year >= 2007, !accession_name %in% c("COL2215",
+                                            "SMB2446-2",
+                                            "CG1141-1",
+                                            "TAI8",
+                                            "CM4919-1",
+                                            "GM4034-1",
+                                            "SM2775-4",
+                                            "SM1127-8")) %>% 
+  ggplot(aes(x = year, y = predicted.value )) +
   geom_point()+
   stat_regline_equation()+
   # geom_abline(intercept = -320.462, slope = 0.1639, color="blue",
   #             size=1) +
   labs(x = "crossing year", y = paste("Predicted", trait, sep = "_")) +
   geom_smooth(method = "lm", formula = y ~ x, se = FALSE) +
+  scale_x_continuous(breaks= pretty_breaks()) +
   theme_xiaofei()
   
 t1
 ggsave(paste("images/", "GG", trait, model_number, sep = "_", ".png"),
        plot = t1, units = "in", dpi = 300, width = 6, height = 6)
 
-model<- lm(formula = predicted.value ~ cross_year, data = stack %>% 
-             filter(cross_year >= 2006))
+model <- lm(formula = predicted.value ~ year, data = stack %>% 
+             filter(year >= 2007))
 
 # -------------------------------------------------------------------------
 # lineal model
